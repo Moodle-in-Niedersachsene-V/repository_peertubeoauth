@@ -375,6 +375,7 @@ class repository_peertubeoauth extends repository {
             'instanceurl',
             'fallbackusername',
             'fallbackpassword',
+            'schoolcode',
             'pluginname',
             'enablecourseinstances',
             'enableuserinstances',
@@ -421,6 +422,11 @@ class repository_peertubeoauth extends repository {
             get_string('fallbackpassword', 'repository_peertubeoauth'));
         $mform->setType('fallbackpassword', PARAM_RAW);
 
+        $mform->addElement('text', 'schoolcode',
+            get_string('schoolcode', 'repository_peertubeoauth'), ['size' => 20]);
+        $mform->setType('schoolcode', PARAM_ALPHANUMEXT);
+        $mform->addHelpButton('schoolcode', 'schoolcode', 'repository_peertubeoauth');
+
         // NOTE: 'enablecourseinstances' and 'enableuserinstances' checkboxes
         // are NOT added manually here. Moodle auto-renders them from
         // get_type_option_names() - adding them again here duplicated the
@@ -446,6 +452,8 @@ class repository_peertubeoauth extends repository {
      * when display_errors is off and looks like an unrelated HTTP 500.
      */
     public static function instance_config_form($mform) {
+        global $USER;
+
         $mform->addElement('static', 'channelinfo', '',
             get_string('channelinfo', 'repository_peertubeoauth'));
 
@@ -453,5 +461,49 @@ class repository_peertubeoauth extends repository {
             get_string('channelname', 'repository_peertubeoauth'));
         $mform->setType('channelname', PARAM_RAW_TRIMMED);
         $mform->addHelpButton('channelname', 'channelname', 'repository_peertubeoauth');
+
+        // Pre-fill with the auto-generated channel handle (schoolcode +
+        // lastname + firstname) if a school code is configured, so
+        // teachers see the correct value without having to type it.
+        $schoolcode = get_config('peertubeoauth', 'schoolcode');
+        if ($schoolcode && !empty($USER->lastname)) {
+            $suggested = self::build_channel_handle_for_user($USER, $schoolcode);
+            if ($suggested) {
+                // setDefault() only fills in values when no value is already
+                // set; updateAttributes sets the HTML 'value' attribute
+                // directly, which works reliably for new (empty) instances.
+                $mform->setDefault('channelname', $suggested);
+                $element = $mform->getElement('channelname');
+                if ($element && empty($element->getValue())) {
+                    $element->updateAttributes(['value' => $suggested]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Build a canonical PeerTube channel handle for a given user.
+     * Extracted as a static helper so it can be called from both
+     * instance_config_form() (static context) and from the upload
+     * plugin's API class.
+     *
+     * @param stdClass $user
+     * @param string   $schoolcode
+     * @return string|null
+     */
+    public static function build_channel_handle_for_user(\stdClass $user, string $schoolcode): ?string {
+        $handle = $schoolcode . '_' . $user->lastname . '_' . $user->firstname;
+        $handle = mb_strtolower($handle, 'UTF-8');
+        $handle = str_replace(
+            ['ä', 'ö', 'ü', 'ß', 'Ä', 'Ö', 'Ü', ' ', '-'],
+            ['ae', 'oe', 'ue', 'ss', 'ae', 'oe', 'ue', '_', '_'],
+            $handle
+        );
+        // PeerTube channel names allow only letters, digits, underscores
+        // and dots - hyphens are NOT allowed despite looking URL-safe.
+        $handle = preg_replace('/[^a-z0-9_\.]/', '', $handle);
+        $handle = preg_replace('/_+/', '_', $handle); // collapse multiple underscores
+        $handle = trim($handle, '_');
+        return $handle ?: null;
     }
 }

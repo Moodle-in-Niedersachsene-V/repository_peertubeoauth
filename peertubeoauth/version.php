@@ -22,8 +22,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2026062007;
+$plugin->version   = 2026062011;
 $plugin->requires  = 2025041400; // Moodle 5.1
 $plugin->component = 'repository_peertubeoauth';
 $plugin->maturity  = MATURITY_STABLE;
-$plugin->release   = '1.2.1';
+$plugin->release   = '1.3.3';

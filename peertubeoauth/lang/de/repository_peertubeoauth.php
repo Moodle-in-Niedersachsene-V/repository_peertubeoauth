@@ -12,6 +12,9 @@ $string['fallbackusername'] = 'Moderator-Kontoname';
 $string['fallbackusername_help'] = 'Benutzername des gemeinsamen PeerTube-Moderatorkontos, über das sich alle Lehrkräfte anmelden.';
 $string['fallbackpassword'] = 'Moderator-Kontopasswort';
 
+$string['schoolcode'] = 'Schulkürzel';
+$string['schoolcode_help'] = 'Kurzes Kürzel für diese Schule, z.B. "gms_muster". Wird automatisch als Präfix in PeerTube-Kanalnamen verwendet, die das Upload-Plugin für Lehrkräfte anlegt (z.B. "gms_muster_mueller_maria"). Nur Buchstaben, Zahlen und Unterstriche erlaubt.';
+
 // Nutzer- / Instanz-Ebene.
 $string['channelinfo'] = 'Geben Sie hier den Namen Ihres persönlichen PeerTube-Kanals ein (innerhalb des gemeinsamen Moderator-Kontos). Sie sehen danach nur die Videos aus diesem Kanal im Datei-Picker. Lassen Sie das Feld leer, um alle Videos des Moderator-Kontos zu sehen.';
 $string['channelname'] = 'PeerTube-Kanalname';

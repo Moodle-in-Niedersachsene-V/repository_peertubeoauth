@@ -12,6 +12,9 @@ $string['fallbackusername'] = 'Moderator account username';
 $string['fallbackusername_help'] = 'Username of the shared PeerTube moderator account that all teachers log in through.';
 $string['fallbackpassword'] = 'Moderator account password';
 
+$string['schoolcode'] = 'School code';
+$string['schoolcode_help'] = 'Short identifier for this school, e.g. "gms_sample". Used automatically as a prefix in PeerTube channel names created by the upload plugin for teachers (e.g. "gms_sample_smith_jane"). Only letters, numbers and underscores allowed.';
+
 // User / instance level.
 $string['channelinfo'] = 'Enter the name of your personal PeerTube channel here (within the shared moderator account). You will then only see videos from that channel in the file picker. Leave empty to see all videos of the moderator account.';
 $string['channelname'] = 'PeerTube channel name';
