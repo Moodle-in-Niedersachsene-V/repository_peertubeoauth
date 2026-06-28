@@ -27,4 +27,5 @@ $string['untitled'] = 'Untitled video';
 $string['privacy_public'] = 'Public';
 $string['privacy_unlisted'] = 'Unlisted';
 $string['privacy_private'] = 'Private';
+$string['peertubeoauth:view'] = 'Use PeerTube (OAuth2) repository';
 $string['privatewarning'] = '(cannot be played! Please switch to "Unlisted")';
