@@ -10,9 +10,16 @@
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * PeerTube OAuth2 repository - version information.
+ * Hook registrations for repository_peertubeoauth.
+ *
+ * Registers a before_http_headers callback that injects the AMD module
+ * responsible for rewriting PeerTube watch/embed links into iframes on
+ * every Moodle page.
  *
  * @package    repository_peertubeoauth
  * @author     Moodle in Niedersachsen e. V.
@@ -22,8 +29,10 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2026062802;
-$plugin->requires  = 2025041400; // Moodle 5.1
-$plugin->component = 'repository_peertubeoauth';
-$plugin->maturity  = MATURITY_STABLE;
-$plugin->release   = '1.3.3';
+$callbacks = [
+    [
+        'hook'     => \core\hook\output\before_http_headers::class,
+        'callback' => \repository_peertubeoauth\hook_callbacks::class . '::before_http_headers',
+        'priority' => 500,
+    ],
+];
