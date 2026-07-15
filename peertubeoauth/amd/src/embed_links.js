@@ -42,16 +42,46 @@ define(['jquery'], function($) {
      * @return {jQuery}           The outer wrapper element.
      */
     function buildIframe(embedUrl) {
+        // Responsives 16:9-iframe mit Breitenbegrenzung.
+        // Moderne Browser: aspect-ratio + max-width, kein padding-bottom-Hack nötig.
+        // Ältere Browser (kein aspect-ratio): Fallback über padding-bottom auf
+        // einem inneren Wrapper, damit max-width korrekt greift.
+        var supportsAspectRatio = CSS && CSS.supports && CSS.supports('aspect-ratio', '16/9');
+
         var $wrapper = $('<div>', {
             'class': 'peertube-embed-wrapper',
             'style': [
-                'position: relative',
-                'padding-bottom: 56.25%',  // 16:9
-                'height: 0',
-                'overflow: hidden',
+                'display: block',
+                'width: 100%',
+                'max-width: 560px',
                 'margin: 0.75em 0',
             ].join('; ')
         });
+
+        var $inner;
+        if (supportsAspectRatio) {
+            // Moderner Pfad: aspect-ratio übernimmt die Höhenberechnung.
+            $inner = $('<div>', {
+                'style': [
+                    'position: relative',
+                    'width: 100%',
+                    'aspect-ratio: 16 / 9',
+                    'overflow: hidden',
+                ].join('; ')
+            });
+        } else {
+            // Fallback: padding-bottom bezieht sich jetzt auf die Breite des
+            // inneren Divs (= max-width des Wrappers), nicht auf den Viewport.
+            $inner = $('<div>', {
+                'style': [
+                    'position: relative',
+                    'width: 100%',
+                    'padding-bottom: 56.25%',
+                    'height: 0',
+                    'overflow: hidden',
+                ].join('; ')
+            });
+        }
 
         var $iframe = $('<iframe>', {
             src:             embedUrl,
@@ -69,7 +99,8 @@ define(['jquery'], function($) {
             ].join('; ')
         });
 
-        $wrapper.append($iframe);
+        $inner.append($iframe);
+        $wrapper.append($inner);
         return $wrapper;
     }
 
