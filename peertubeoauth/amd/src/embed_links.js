@@ -105,22 +105,85 @@ define(['jquery'], function($) {
     }
 
     /**
+     * Append embed parameters to a URL, merging with any existing query
+     * string. Parameters already present in the URL are NOT overwritten,
+     * so an author who deliberately set e.g. ?start=30s keeps it, while
+     * the privacy defaults (p2p=0 etc.) are still added.
+     *
+     * @param  {string} url          The embed URL (may already have a query).
+     * @param  {string} embedParams  Query string without leading '?', e.g.
+     *                                'peertubeLink=0&p2p=0&warningTitle=0'.
+     * @return {string}              URL with merged parameters.
+     */
+    function appendParams(url, embedParams) {
+        if (!embedParams) {
+            return url;
+        }
+
+        // Split off any existing hash to re-append at the end.
+        var hash = '';
+        var hashIdx = url.indexOf('#');
+        if (hashIdx !== -1) {
+            hash = url.slice(hashIdx);
+            url = url.slice(0, hashIdx);
+        }
+
+        // Collect keys already present in the URL's query string.
+        var existing = {};
+        var qIdx = url.indexOf('?');
+        if (qIdx !== -1) {
+            var qs = url.slice(qIdx + 1);
+            qs.split('&').forEach(function(pair) {
+                if (!pair) {
+                    return;
+                }
+                var key = pair.split('=')[0];
+                if (key) {
+                    existing[key] = true;
+                }
+            });
+        }
+
+        // Only add params whose key is not already set on the URL.
+        var toAdd = [];
+        embedParams.split('&').forEach(function(pair) {
+            if (!pair) {
+                return;
+            }
+            var key = pair.split('=')[0];
+            if (key && !existing[key]) {
+                toAdd.push(pair);
+            }
+        });
+
+        if (toAdd.length === 0) {
+            return url + hash;
+        }
+
+        var sep = (qIdx === -1) ? '?' : '&';
+        return url + sep + toAdd.join('&') + hash;
+    }
+
+    /**
      * Convert a watch URL (/w/<uuid>) to an embed URL (/videos/embed/<uuid>).
-     * Embed URLs are already returned as-is.
+     * Embed URLs are already returned as-is. Embed parameters are merged in.
      *
      * @param  {string} href         The anchor href.
      * @param  {string} instanceUrl  PeerTube base URL (no trailing slash).
      * @param  {string} embedBase    Embed base URL (instanceUrl + /videos/embed/).
+     * @param  {string} embedParams  Query string to merge in (no leading '?').
      * @return {string|null}         Embed URL, or null if not a PeerTube link.
      */
-    function toEmbedUrl(href, instanceUrl, embedBase) {
+    function toEmbedUrl(href, instanceUrl, embedBase, embedParams) {
         // Normalise: strip trailing slash and query/hash for matching.
         var clean = href.split('?')[0].split('#')[0].replace(/\/$/, '');
 
         // Already an embed URL?
         var embedPrefix = instanceUrl + '/videos/embed/';
         if (clean.indexOf(embedPrefix) === 0) {
-            return href; // Keep original (may include query params like ?loop=1).
+            // Keep original href (may include query params like ?loop=1)
+            // and merge in the configured embed params without clobbering.
+            return appendParams(href, embedParams);
         }
 
         // Watch URL: /w/<uuid> or /videos/watch/<uuid>
@@ -143,7 +206,7 @@ define(['jquery'], function($) {
             return null;
         }
 
-        return embedBase + uuid;
+        return appendParams(embedBase + uuid, embedParams);
     }
 
     /**
@@ -156,8 +219,9 @@ define(['jquery'], function($) {
      *
      * @param {string} instanceUrl
      * @param {string} embedBase
+     * @param {string} embedParams
      */
-    function processLinks(instanceUrl, embedBase) {
+    function processLinks(instanceUrl, embedBase, embedParams) {
         $('a[href]').each(function() {
             var $a   = $(this);
             var href = $a.attr('href') || '';
@@ -167,7 +231,7 @@ define(['jquery'], function($) {
                 return;
             }
 
-            var embedUrl = toEmbedUrl(href, instanceUrl, embedBase);
+            var embedUrl = toEmbedUrl(href, instanceUrl, embedBase, embedParams);
             if (!embedUrl) {
                 return;
             }
@@ -209,13 +273,16 @@ define(['jquery'], function($) {
          * @param {Object} opts
          * @param {string} opts.instanceUrl  PeerTube base URL.
          * @param {string} opts.embedBase    Embed URL prefix.
+         * @param {string} opts.embedParams  Query string merged into every
+         *                                    embed URL (no leading '?').
          */
         init: function(opts) {
             if (!opts || !opts.instanceUrl) {
                 return;
             }
+            var embedParams = opts.embedParams || '';
             $(document).ready(function() {
-                processLinks(opts.instanceUrl, opts.embedBase);
+                processLinks(opts.instanceUrl, opts.embedBase, embedParams);
             });
         }
     };

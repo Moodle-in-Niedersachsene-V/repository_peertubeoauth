@@ -29,3 +29,6 @@ $string['privacy_unlisted'] = 'Unlisted';
 $string['privacy_private'] = 'Private';
 $string['peertubeoauth:view'] = 'Use PeerTube (OAuth2) repository';
 $string['privatewarning'] = '(cannot be played! Please switch to "Unlisted")';
+
+$string['embedparams'] = 'Embed URL parameters';
+$string['embedparams_help'] = 'Query parameters appended to every embedded video (fallback renderer). Separate multiple parameters with "&". Default: peertubeLink=0&p2p=0&warningTitle=0 — this disables P2P/WebTorrent (so viewer IP addresses are not shared with other peers, recommended for pupils), removes the "PeerTube" link and the IP warning banner in the player. Add title=0 to also hide the title overlay. Parameters an author has already set on a link are kept.';

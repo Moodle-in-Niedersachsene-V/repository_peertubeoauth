@@ -69,6 +69,17 @@ class hook_callbacks {
         // PeerTube embed URLs follow the pattern: {instanceurl}/videos/embed/{uuid}
         $embedbase = $instanceurl . '/videos/embed/';
 
+        // Embed URL parameters (privacy + player chrome). Configurable by
+        // the admin; falls back to a privacy-friendly default if unset.
+        // p2p=0 is the security-relevant one (viewer IP not shared with
+        // other peers); the rest hide player chrome / the origin link.
+        $embedparams = get_config('peertubeoauth', 'embedparams');
+        if ($embedparams === false || $embedparams === null || $embedparams === '') {
+            $embedparams = 'peertubeLink=0&p2p=0&warningTitle=0';
+        }
+        // Normalise: strip a leading '?' or '&' if the admin added one.
+        $embedparams = ltrim($embedparams, '?&');
+
         // Pass configuration to the AMD module and require it.
         $PAGE->requires->js_call_amd(
             'repository_peertubeoauth/embed_links',
@@ -76,6 +87,7 @@ class hook_callbacks {
             [[
                 'instanceUrl' => $instanceurl,
                 'embedBase'   => $embedbase,
+                'embedParams' => $embedparams,
             ]]
         );
     }

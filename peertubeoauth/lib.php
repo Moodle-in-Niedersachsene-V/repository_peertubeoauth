@@ -376,6 +376,7 @@ class repository_peertubeoauth extends repository {
             'fallbackusername',
             'fallbackpassword',
             'schoolcode',
+            'embedparams',
             'pluginname',
             'enablecourseinstances',
             'enableuserinstances',
@@ -426,6 +427,16 @@ class repository_peertubeoauth extends repository {
             get_string('schoolcode', 'repository_peertubeoauth'), ['size' => 20]);
         $mform->setType('schoolcode', PARAM_ALPHANUMEXT);
         $mform->addHelpButton('schoolcode', 'schoolcode', 'repository_peertubeoauth');
+
+        // Embed URL parameters appended to every embedded video by the
+        // fallback renderer (see amd/src/embed_links.js). Controls privacy
+        // and player chrome. Default disables P2P/WebTorrent (viewer IP
+        // privacy), removes the PeerTube link and the IP warning banner.
+        $mform->addElement('text', 'embedparams',
+            get_string('embedparams', 'repository_peertubeoauth'), ['size' => 50]);
+        $mform->setType('embedparams', PARAM_RAW_TRIMMED);
+        $mform->addHelpButton('embedparams', 'embedparams', 'repository_peertubeoauth');
+        $mform->setDefault('embedparams', 'peertubeLink=0&p2p=0&warningTitle=0');
 
         // NOTE: 'enablecourseinstances' and 'enableuserinstances' checkboxes
         // are NOT added manually here. Moodle auto-renders them from
