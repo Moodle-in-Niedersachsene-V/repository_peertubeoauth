@@ -188,7 +188,7 @@ define(['jquery'], function($) {
 
         // Watch URL: /w/<uuid> or /videos/watch/<uuid>
         var watchPrefixShort = instanceUrl + '/w/';
-        var watchPrefixLong  = instanceUrl + '/videos/watch/';
+        var watchPrefixLong = instanceUrl + '/videos/watch/';
 
         var uuid = null;
         if (clean.indexOf(watchPrefixShort) === 0) {
@@ -223,7 +223,7 @@ define(['jquery'], function($) {
      */
     function processLinks(instanceUrl, embedBase, embedParams) {
         $('a[href]').each(function() {
-            var $a   = $(this);
+            var $a = $(this);
             var href = $a.attr('href') || '';
 
             // Quick pre-filter: must contain the instance hostname.
@@ -242,10 +242,11 @@ define(['jquery'], function($) {
             var forceEmbed = $a.data('peertube-embed') === 1 ||
                              $a.attr('data-peertube-embed') === '1';
 
+            var $parent = $a.parent();
+
             if (!forceEmbed) {
-                var $parent    = $a.parent();
                 var parentText = ($parent.text() || '').trim();
-                var linkText   = ($a.text() || '').trim();
+                var linkText = ($a.text() || '').trim();
                 // Only embed when the link fills the whole parent element.
                 if (parentText !== linkText) {
                     return;
@@ -256,8 +257,7 @@ define(['jquery'], function($) {
 
             // Replace the parent block if it is a simple <p> wrapper,
             // otherwise replace just the anchor itself.
-            var $parent = $a.parent();
-            var tag     = ($parent[0].tagName || '').toLowerCase();
+            var tag = ($parent[0].tagName || '').toLowerCase();
             if (tag === 'p' || tag === 'div') {
                 $parent.replaceWith($iframe);
             } else {

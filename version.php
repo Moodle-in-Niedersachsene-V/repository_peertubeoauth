@@ -25,7 +25,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version    = 2026062806;
+$plugin->version    = 2026062807;
 $plugin->requires   = 2025100600;
 $plugin->component  = 'repository_peertubeoauth';
 $plugin->maturity   = MATURITY_STABLE;

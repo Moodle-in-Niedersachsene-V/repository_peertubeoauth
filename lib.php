@@ -232,19 +232,11 @@ class repository_peertubeoauth extends repository {
      * @return array The file picker listing structure.
      */
     public function get_listing($path = '', $page = '') {
-        $list = [
-            'list' => [],
-            'path' => [
-                [
-                    'name' => get_string('pluginname', 'repository_peertubeoauth'),
-                    'path' => '',
-                ],
-            ],
-            'dynload' => true,
-            'nologin' => true,
-            'norefresh' => false,
-            'nosearch' => false,
-        ];
+        // The path parameter is part of the parent signature only.
+        // This repository presents a flat list without folders.
+        unset($path);
+
+        $list = $this->empty_listing();
 
         $instanceurl = $this->get_instance_url();
         if (!$instanceurl) {
@@ -258,51 +250,114 @@ class repository_peertubeoauth extends repository {
         $perpage = $channelfilter ? self::PAGE_SIZE_FILTERED : self::PAGE_SIZE;
         $start = $channelfilter ? 0 : max(0, ((int)$page - 1) * $perpage);
 
+        $data = $this->fetch_videos($instanceurl, $start, $perpage);
+        if (!$data || empty($data->data)) {
+            return $list;
+        }
+
+        $videos = $this->filter_by_channel($data->data, $channelfilter);
+        foreach ($videos as $video) {
+            $list['list'][] = $this->video_to_listitem($video, $instanceurl);
+        }
+
+        $list['pages'] = $this->count_pages($data, $perpage, $channelfilter);
+
+        return $list;
+    }
+
+    /**
+     * Build the empty skeleton of a file picker listing.
+     *
+     * @return array The listing structure without any entries.
+     */
+    private function empty_listing(): array {
+        return [
+            'list' => [],
+            'path' => [
+                [
+                    'name' => get_string('pluginname', 'repository_peertubeoauth'),
+                    'path' => '',
+                ],
+            ],
+            'dynload' => true,
+            'nologin' => true,
+            'norefresh' => false,
+            'nosearch' => false,
+        ];
+    }
+
+    /**
+     * Fetch one page of videos from the PeerTube API.
+     *
+     * With a valid token the authenticated endpoint is used, which also
+     * returns unlisted and private videos. Without a token the plugin
+     * falls back to the public search endpoint.
+     *
+     * @param string $instanceurl PeerTube base URL without trailing slash.
+     * @param int $start Index of the first video to return.
+     * @param int $perpage Number of videos to request.
+     * @return object|null Decoded API response, or null on failure.
+     */
+    private function fetch_videos(string $instanceurl, int $start, int $perpage): ?object {
         $token = $this->get_access_token();
 
         if ($token) {
-            // Authenticated listing returns private and unlisted videos too.
             $url = $instanceurl . '/api/v1/users/me/videos?' . http_build_query([
                 'start' => $start,
                 'count' => $perpage,
                 'sort' => '-publishedAt',
             ]);
-            $data = $this->api_call($url, 'GET', [], $token);
-        } else {
-            // Without an account only public videos can be listed.
-            $url = $instanceurl . '/api/v1/search/videos?' . http_build_query([
-                'start' => $start,
-                'count' => $perpage,
-                'sort' => '-publishedAt',
-                'privacyOneOf' => self::PRIVACY_PUBLIC,
-            ]);
-            $data = $this->api_call($url, 'GET');
+            return $this->api_call($url, 'GET', [], $token);
         }
 
-        if (!$data || empty($data->data)) {
-            return $list;
+        $url = $instanceurl . '/api/v1/search/videos?' . http_build_query([
+            'start' => $start,
+            'count' => $perpage,
+            'sort' => '-publishedAt',
+            'privacyOneOf' => self::PRIVACY_PUBLIC,
+        ]);
+        return $this->api_call($url, 'GET');
+    }
+
+    /**
+     * Reduce a list of videos to those belonging to one channel.
+     *
+     * @param array $videos Videos as returned by the PeerTube API.
+     * @param string|null $channelfilter Channel name, or null for no filter.
+     * @return array The filtered list of videos.
+     */
+    private function filter_by_channel(array $videos, ?string $channelfilter): array {
+        if (!$channelfilter) {
+            return $videos;
         }
 
-        $videos = $data->data;
-        if ($channelfilter) {
-            $videos = array_values(array_filter($videos, function ($video) use ($channelfilter) {
-                $channelname = $video->channel->name ?? '';
-                return strcasecmp($channelname, $channelfilter) === 0;
-            }));
-        }
+        $matching = array_filter($videos, function ($video) use ($channelfilter) {
+            $channelname = $video->channel->name ?? '';
+            return strcasecmp($channelname, $channelfilter) === 0;
+        });
 
-        foreach ($videos as $video) {
-            $list['list'][] = $this->video_to_listitem($video, $instanceurl);
-        }
+        return array_values($matching);
+    }
 
+    /**
+     * Determine the number of pages reported to the file picker.
+     *
+     * @param object $data Decoded API response.
+     * @param int $perpage Number of videos per page.
+     * @param string|null $channelfilter Channel name, or null for no filter.
+     * @return int The page count.
+     */
+    private function count_pages(object $data, int $perpage, ?string $channelfilter): int {
         if ($channelfilter) {
             // The filtered result already fits on a single page.
-            $list['pages'] = 1;
-        } else if (!empty($data->total)) {
-            $list['pages'] = (int)ceil($data->total / $perpage);
+            return 1;
         }
 
-        return $list;
+        if (empty($data->total)) {
+            return 1;
+        }
+
+        return (int)ceil($data->total / $perpage);
     }
 
     /**
