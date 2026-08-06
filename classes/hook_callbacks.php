@@ -38,7 +38,6 @@ use core\hook\output\before_http_headers;
  * that no PeerTube domain is hardcoded anywhere in the plugin.
  */
 class hook_callbacks {
-
     /** @var string Default embed parameters used when none are configured. */
     const DEFAULT_EMBED_PARAMS = 'peertubeLink=0&p2p=0&warningTitle=0';
 

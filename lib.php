@@ -59,6 +59,15 @@ class repository_peertubeoauth extends repository {
     /** @var int Number of videos fetched per request when filtering by channel. */
     const PAGE_SIZE_FILTERED = 100;
 
+    /** @var string Session key under which the access token is cached. */
+    const TOKEN_CACHE_KEY = 'repository_peertubeoauth_token_shared';
+
+    /** @var int Seconds of leeway before a cached token counts as expired. */
+    const TOKEN_LEEWAY = 60;
+
+    /** @var int Assumed token lifetime when the API reports none. */
+    const TOKEN_DEFAULT_LIFETIME = 3600;
+
     /**
      * Read a value of the shared moderator account from the type config.
      *
@@ -105,8 +114,6 @@ class repository_peertubeoauth extends repository {
      * @return string|null The access token, or null when unavailable.
      */
     private function get_access_token(): ?string {
-        global $SESSION;
-
         $instanceurl = $this->get_instance_url();
         $username = $this->get_account_value('fallbackusername');
         $password = $this->get_account_value('fallbackpassword');
@@ -115,28 +122,80 @@ class repository_peertubeoauth extends repository {
             return null;
         }
 
-        // The token depends only on the shared moderator account.
-        // It is therefore safe to cache once per session for all instances.
-        $cachekey = 'repository_peertubeoauth_token_shared';
-
-        if (!empty($SESSION->$cachekey)) {
-            $cached = $SESSION->$cachekey;
-            if (!empty($cached->expiry) && $cached->expiry > time() + 60) {
-                return $cached->access_token;
-            }
+        $cached = $this->get_cached_token();
+        if ($cached !== null) {
+            return $cached;
         }
 
-        // Step one fetches the OAuth2 client credentials of the instance.
+        $clientdata = $this->fetch_oauth_client($instanceurl);
+        if ($clientdata === null) {
+            return null;
+        }
+
+        return $this->request_token($instanceurl, $clientdata, $username, $password);
+    }
+
+    /**
+     * Return a still valid access token from the session cache.
+     *
+     * The token depends only on the shared moderator account, so one
+     * cache entry per session is enough for all repository instances.
+     *
+     * @return string|null The cached token, or null when it is absent or stale.
+     */
+    private function get_cached_token(): ?string {
+        global $SESSION;
+
+        $cachekey = self::TOKEN_CACHE_KEY;
+        if (empty($SESSION->$cachekey)) {
+            return null;
+        }
+
+        $cached = $SESSION->$cachekey;
+        if (empty($cached->expiry) || $cached->expiry <= time() + self::TOKEN_LEEWAY) {
+            return null;
+        }
+
+        return $cached->access_token;
+    }
+
+    /**
+     * Fetch the OAuth2 client credentials of the PeerTube instance.
+     *
+     * @param string $instanceurl PeerTube base URL without trailing slash.
+     * @return object|null The client credentials, or null on failure.
+     */
+    private function fetch_oauth_client(string $instanceurl): ?object {
         $clientdata = $this->api_call($instanceurl . '/api/v1/oauth-clients/local', 'GET');
+
         if (!$clientdata || empty($clientdata->client_id) || empty($clientdata->client_secret)) {
             debugging(
-                'PeerTube OAuth2: failed to fetch client credentials from ' . $instanceurl,
+                'PeerTube OAuth2: failed to fetch client credentials.',
                 DEBUG_DEVELOPER
             );
             return null;
         }
 
-        // Step two requests an access token using the password grant.
+        return $clientdata;
+    }
+
+    /**
+     * Request an access token using the password grant and cache it.
+     *
+     * @param string $instanceurl PeerTube base URL without trailing slash.
+     * @param object $clientdata OAuth2 client credentials of the instance.
+     * @param string $username Username of the shared moderator account.
+     * @param string $password Password of the shared moderator account.
+     * @return string|null The access token, or null on failure.
+     */
+    private function request_token(
+        string $instanceurl,
+        object $clientdata,
+        string $username,
+        string $password
+    ): ?string {
+        global $SESSION;
+
         $postfields = [
             'client_id' => $clientdata->client_id,
             'client_secret' => $clientdata->client_secret,
@@ -152,9 +211,10 @@ class repository_peertubeoauth extends repository {
             return null;
         }
 
+        $cachekey = self::TOKEN_CACHE_KEY;
         $SESSION->$cachekey = (object)[
             'access_token' => $tokendata->access_token,
-            'expiry' => time() + (int)($tokendata->expires_in ?? 3600),
+            'expiry' => time() + (int)($tokendata->expires_in ?? self::TOKEN_DEFAULT_LIFETIME),
         ];
 
         return $tokendata->access_token;

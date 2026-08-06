@@ -33,7 +33,6 @@ namespace repository_peertubeoauth\privacy;
  * only in the volatile Moodle session, never in the database.
  */
 class provider implements \core_privacy\local\metadata\null_provider {
-
     /**
      * Return the language string identifier explaining why this plugin
      * stores no personal data.
