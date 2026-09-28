@@ -26,7 +26,7 @@
 /**
  * Apply the upgrade steps of this plugin.
  *
- * The plugin had no database table before build 2026092702. Shipping
+ * The plugin had no database table before build 2026092703. Shipping
  * db/install.xml alone would therefore create the table on fresh
  * installations only, because Moodle does not replay install.xml for a
  * plugin that is already installed. The step below closes that gap for
@@ -40,8 +40,8 @@ function xmldb_repository_peertubeoauth_upgrade($oldversion) {
 
     $dbman = $DB->get_manager();
 
-    if ($oldversion < 2026092702) {
-        $table = new xmldb_table('peertubeoauth_cohortchannel');
+    if ($oldversion < 2026092703) {
+        $table = new xmldb_table('repository_peertubeoauth_cohortchannel');
 
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
         $table->add_field('cohortid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
@@ -59,7 +59,7 @@ function xmldb_repository_peertubeoauth_upgrade($oldversion) {
             $dbman->create_table($table);
         }
 
-        upgrade_plugin_savepoint(true, 2026092702, 'repository', 'peertubeoauth');
+        upgrade_plugin_savepoint(true, 2026092703, 'repository', 'peertubeoauth');
     }
 
     return true;

@@ -14,7 +14,7 @@ administrator accounts.
 
 ## The group channel table
 
-The table `peertubeoauth_cohortchannel` stores a cohort id together with
+The table `repository_peertubeoauth_cohortchannel` stores a cohort id together with
 a PeerTube channel handle and a display name. It holds no data about
 individual users; cohort membership itself is core Moodle data. The
 plugin therefore still declares `null_provider`.

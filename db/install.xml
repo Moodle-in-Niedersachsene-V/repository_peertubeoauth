@@ -4,7 +4,7 @@
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
   <TABLES>
-    <TABLE NAME="peertubeoauth_cohortchannel" COMMENT="Maps a global cohort to a shared PeerTube channel. The table name omits the repository prefix because Moodle limits table names to 28 characters.">
+    <TABLE NAME="repository_peertubeoauth_cohortchannel" COMMENT="Maps a global cohort to a shared PeerTube channel.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="cohortid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Cohort whose members see this channel."/>

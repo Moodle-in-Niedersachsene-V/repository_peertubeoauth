@@ -40,7 +40,7 @@ namespace repository_peertubeoauth;
  */
 class cohort_channel {
     /** @var string Name of the mapping table. */
-    const TABLE = 'peertubeoauth_cohortchannel';
+    const TABLE = 'repository_peertubeoauth_cohortchannel';
 
     /**
      * Return the channel handles of all cohorts a user belongs to.

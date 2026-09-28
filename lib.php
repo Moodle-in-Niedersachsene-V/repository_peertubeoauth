@@ -46,7 +46,7 @@ require_once($CFG->dirroot . '/repository/lib.php');
  * On top of the personal channel, an instance also shows the group
  * channels of every cohort the current user belongs to. That mapping
  * is maintained by an administrator and lives in the table
- * peertubeoauth_cohortchannel.
+ * repository_peertubeoauth_cohortchannel.
  *
  * All channels belong to the same PeerTube account, so this separation
  * decides who finds a video in the file picker, not who may play it.
