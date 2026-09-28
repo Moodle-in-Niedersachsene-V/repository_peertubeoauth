@@ -42,6 +42,16 @@ require_once($CFG->dirroot . '/repository/lib.php');
  * stores a PeerTube channel name. Each teacher owns a channel inside
  * the shared moderator account and sees only videos from that channel.
  * When no channel name is set, all videos of the account are listed.
+ *
+ * On top of the personal channel, an instance also shows the group
+ * channels of every cohort the current user belongs to. That mapping
+ * is maintained by an administrator and lives in the table
+ * peertubeoauth_cohortchannel.
+ *
+ * All channels belong to the same PeerTube account, so this separation
+ * decides who finds a video in the file picker, not who may play it.
+ * Videos stay unlisted rather than private, because PeerTube refuses
+ * to serve private videos to viewers who are not logged in there.
  */
 class repository_peertubeoauth extends repository {
     /** @var int Privacy level of public videos, matching the PeerTube API. */
@@ -53,239 +63,68 @@ class repository_peertubeoauth extends repository {
     /** @var int Privacy level of private videos, matching the PeerTube API. */
     const PRIVACY_PRIVATE = 3;
 
-    /** @var int Number of videos fetched per request without a channel filter. */
+    /** @var int Number of videos shown on one file picker page. */
     const PAGE_SIZE = 30;
 
-    /** @var int Number of videos fetched per request when filtering by channel. */
+    /** @var int Number of videos fetched per API request when filtering. */
     const PAGE_SIZE_FILTERED = 100;
 
+    /** @var int Safety limit on API requests made for one filtered listing. */
+    const MAX_FETCH_PAGES = 20;
+
     /** @var string Session key under which the access token is cached. */
-    const TOKEN_CACHE_KEY = 'repository_peertubeoauth_token_shared';
+    const TOKEN_CACHE_KEY = \repository_peertubeoauth\api::TOKEN_CACHE_KEY;
 
     /** @var int Seconds of leeway before a cached token counts as expired. */
-    const TOKEN_LEEWAY = 60;
+    const TOKEN_LEEWAY = \repository_peertubeoauth\api::TOKEN_LEEWAY;
 
     /** @var int Assumed token lifetime when the API reports none. */
-    const TOKEN_DEFAULT_LIFETIME = 3600;
+    const TOKEN_DEFAULT_LIFETIME = \repository_peertubeoauth\api::TOKEN_DEFAULT_LIFETIME;
 
     /**
-     * Read a value of the shared moderator account from the type config.
+     * Return the PeerTube channels this instance should show.
      *
-     * @param string $name Setting name, either fallbackusername or fallbackpassword.
-     * @return string|null The configured value, or null when it is unset.
+     * The personal channel of the instance is the starting point. Every
+     * group channel of a cohort the current user belongs to is added to
+     * it, so that shared videos appear next to the own ones.
+     *
+     * An instance without a personal channel is left unfiltered on
+     * purpose. Such an instance already shows every video of the shared
+     * moderator account, so applying cohort channels there would hide
+     * videos that are visible today rather than reveal additional ones.
+     *
+     * @return array Lower case channel handles. An empty array means no filter.
      */
-    private function get_account_value(string $name): ?string {
-        $value = get_config('peertubeoauth', $name);
-        return $value !== false && $value !== '' ? $value : null;
+    private function get_channel_filters(): array {
+        global $USER;
+
+        $personal = trim($this->options['channelname'] ?? '');
+        if ($personal === '') {
+            return [];
+        }
+
+        $channels = [\core_text::strtolower($personal)];
+
+        $cohortchannels = \repository_peertubeoauth\cohort_channel::get_channels_for_user(
+            (int)$USER->id
+        );
+
+        foreach ($cohortchannels as $channel) {
+            $channels[] = $channel;
+        }
+
+        return array_values(array_unique($channels));
     }
-
-    /**
-     * Return the PeerTube channel name configured for this instance.
-     *
-     * The value is used to filter the video listing down to one channel.
-     *
-     * @return string|null The channel name, or null when none is set.
-     */
-    private function get_channel_filter(): ?string {
-        $channel = $this->options['channelname'] ?? '';
-        $channel = trim($channel);
-        return $channel !== '' ? $channel : null;
-    }
-
-    /**
-     * Return the configured PeerTube base URL without a trailing slash.
-     *
-     * The URL is always read from the type level config, because it is
-     * fixed centrally per school rather than per teacher.
-     *
-     * @return string|null The base URL, or null when it is unset.
-     */
-    private function get_instance_url(): ?string {
-        $url = get_config('peertubeoauth', 'instanceurl');
-        return $url ? rtrim($url, '/') : null;
-    }
-
-    /**
-     * Obtain a valid OAuth2 access token for the shared moderator account.
-     *
-     * The session acts as a cache so that the plugin does not
-     * reauthenticate on every single file picker request.
-     *
-     * @return string|null The access token, or null when unavailable.
-     */
-    private function get_access_token(): ?string {
-        $instanceurl = $this->get_instance_url();
-        $username = $this->get_account_value('fallbackusername');
-        $password = $this->get_account_value('fallbackpassword');
-
-        if (!$instanceurl || !$username || !$password) {
-            return null;
-        }
-
-        $cached = $this->get_cached_token();
-        if ($cached !== null) {
-            return $cached;
-        }
-
-        $clientdata = $this->fetch_oauth_client($instanceurl);
-        if ($clientdata === null) {
-            return null;
-        }
-
-        return $this->request_token($instanceurl, $clientdata, $username, $password);
-    }
-
-    /**
-     * Return a still valid access token from the session cache.
-     *
-     * The token depends only on the shared moderator account, so one
-     * cache entry per session is enough for all repository instances.
-     *
-     * @return string|null The cached token, or null when it is absent or stale.
-     */
-    private function get_cached_token(): ?string {
-        global $SESSION;
-
-        $cachekey = self::TOKEN_CACHE_KEY;
-        if (empty($SESSION->$cachekey)) {
-            return null;
-        }
-
-        $cached = $SESSION->$cachekey;
-        if (empty($cached->expiry) || $cached->expiry <= time() + self::TOKEN_LEEWAY) {
-            return null;
-        }
-
-        return $cached->access_token;
-    }
-
-    /**
-     * Fetch the OAuth2 client credentials of the PeerTube instance.
-     *
-     * @param string $instanceurl PeerTube base URL without trailing slash.
-     * @return object|null The client credentials, or null on failure.
-     */
-    private function fetch_oauth_client(string $instanceurl): ?object {
-        $clientdata = $this->api_call($instanceurl . '/api/v1/oauth-clients/local', 'GET');
-
-        if (!$clientdata || empty($clientdata->client_id) || empty($clientdata->client_secret)) {
-            debugging(
-                'PeerTube OAuth2: failed to fetch client credentials.',
-                DEBUG_DEVELOPER
-            );
-            return null;
-        }
-
-        return $clientdata;
-    }
-
-    /**
-     * Request an access token using the password grant and cache it.
-     *
-     * @param string $instanceurl PeerTube base URL without trailing slash.
-     * @param object $clientdata OAuth2 client credentials of the instance.
-     * @param string $username Username of the shared moderator account.
-     * @param string $password Password of the shared moderator account.
-     * @return string|null The access token, or null on failure.
-     */
-    private function request_token(
-        string $instanceurl,
-        object $clientdata,
-        string $username,
-        string $password
-    ): ?string {
-        global $SESSION;
-
-        $postfields = [
-            'client_id' => $clientdata->client_id,
-            'client_secret' => $clientdata->client_secret,
-            'grant_type' => 'password',
-            'response_type' => 'code',
-            'username' => $username,
-            'password' => $password,
-        ];
-
-        $tokendata = $this->api_call($instanceurl . '/api/v1/users/token', 'POST', $postfields);
-        if (!$tokendata || empty($tokendata->access_token)) {
-            debugging('PeerTube OAuth2: token request failed.', DEBUG_DEVELOPER);
-            return null;
-        }
-
-        $cachekey = self::TOKEN_CACHE_KEY;
-        $SESSION->$cachekey = (object)[
-            'access_token' => $tokendata->access_token,
-            'expiry' => time() + (int)($tokendata->expires_in ?? self::TOKEN_DEFAULT_LIFETIME),
-        ];
-
-        return $tokendata->access_token;
-    }
-
-    /**
-     * Perform an HTTP call against the PeerTube API.
-     *
-     * The bearer token is an explicit parameter rather than being
-     * fetched internally. This avoids a recursive token request when
-     * the method is called from get_access_token() itself, because
-     * those two calls deliberately pass no token.
-     *
-     * @param string $url Full request URL.
-     * @param string $method Request method, either GET or POST.
-     * @param array $postfields Form fields sent with POST requests.
-     * @param string|null $bearertoken Access token to send, if any.
-     * @return object|null Decoded JSON response, or null on failure.
-     */
-    private function api_call(
-        string $url,
-        string $method = 'GET',
-        array $postfields = [],
-        ?string $bearertoken = null
-    ): ?object {
-        $curl = new curl();
-        $options = [
-            'CURLOPT_RETURNTRANSFER' => true,
-            'CURLOPT_TIMEOUT' => 15,
-            'CURLOPT_SSL_VERIFYPEER' => true,
-        ];
-
-        if ($bearertoken) {
-            $curl->setHeader(['Authorization: Bearer ' . $bearertoken]);
-        }
-
-        if ($method === 'POST') {
-            $curl->setHeader(['Content-Type: application/x-www-form-urlencoded']);
-            // The POST body must be an explicitly encoded string, not an array.
-            // The cURL extension switches to multipart encoding for arrays.
-            // PeerTube rejects multipart bodies with an invalid_client error.
-            // PHP_QUERY_RFC1738 encodes special characters exactly once.
-            $encoded = http_build_query($postfields, '', '&', PHP_QUERY_RFC1738);
-            $response = $curl->post($url, $encoded, $options);
-        } else {
-            $response = $curl->get($url, [], $options);
-        }
-
-        if ($curl->get_errno()) {
-            debugging(
-                'PeerTube OAuth2: cURL error ' . $curl->get_errno() . '.',
-                DEBUG_DEVELOPER
-            );
-            return null;
-        }
-
-        $decoded = json_decode($response);
-        return $decoded ?: null;
-    }
-
     /**
      * Return the video listing shown in the file picker.
      *
      * The listing uses the authenticated endpoint of the shared
      * moderator account, which returns all of its videos across all
-     * channels regardless of privacy level. When this instance has a
-     * channel name configured, the results are filtered down to that
-     * channel in PHP. Filtering through the PeerTube API proved
-     * unreliable, because some versions return public videos only when
-     * a channel is queried directly. Without any configured account the
-     * plugin falls back to the public search endpoint.
+     * channels regardless of privacy level. Filtering through the
+     * PeerTube API proved unreliable, because some versions return
+     * public videos only when a channel is queried directly, so the
+     * channel restriction is applied in PHP. Without any configured
+     * account the plugin falls back to the public search endpoint.
      *
      * @param string $path Folder path, unused by this repository.
      * @param string $page Requested page number as a string.
@@ -298,31 +137,141 @@ class repository_peertubeoauth extends repository {
 
         $list = $this->empty_listing();
 
-        $instanceurl = $this->get_instance_url();
+        $instanceurl = \repository_peertubeoauth\api::get_instance_url();
         if (!$instanceurl) {
             return $list;
         }
 
-        $channelfilter = $this->get_channel_filter();
+        $page = max(1, (int)$page);
+        $channelfilters = $this->get_channel_filters();
 
-        // A larger page is fetched before the filtering step.
-        // The number of videos per channel is not known in advance.
-        $perpage = $channelfilter ? self::PAGE_SIZE_FILTERED : self::PAGE_SIZE;
-        $start = $channelfilter ? 0 : max(0, ((int)$page - 1) * $perpage);
+        if (!$channelfilters) {
+            return $this->get_unfiltered_listing($list, $instanceurl, $page);
+        }
 
-        $data = $this->fetch_videos($instanceurl, $start, $perpage);
+        return $this->get_filtered_listing($list, $instanceurl, $page, $channelfilters);
+    }
+
+    /**
+     * Build a listing that shows every video of the shared account.
+     *
+     * One API page maps directly onto one file picker page here, so the
+     * total reported by PeerTube can be used as it is.
+     *
+     * @param array $list The prepared listing skeleton.
+     * @param string $instanceurl PeerTube base URL without trailing slash.
+     * @param int $page Requested page number, starting at one.
+     * @return array The completed listing structure.
+     */
+    private function get_unfiltered_listing(array $list, string $instanceurl, int $page): array {
+        $start = ($page - 1) * self::PAGE_SIZE;
+
+        $data = $this->fetch_videos($instanceurl, $start, self::PAGE_SIZE);
         if (!$data || empty($data->data)) {
             return $list;
         }
 
-        $videos = $this->filter_by_channel($data->data, $channelfilter);
-        foreach ($videos as $video) {
+        foreach ($data->data as $video) {
             $list['list'][] = $this->video_to_listitem($video, $instanceurl);
         }
 
-        $list['pages'] = $this->count_pages($data, $perpage, $channelfilter);
+        $total = (int)($data->total ?? 0);
+        $list['pages'] = $total > 0 ? (int)ceil($total / self::PAGE_SIZE) : 1;
 
         return $list;
+    }
+
+    /**
+     * Build a listing restricted to a set of channels.
+     *
+     * Because the restriction happens in PHP, the matching videos have
+     * to be collected across as many API pages as needed before the
+     * requested page can be cut out of them.
+     *
+     * @param array $list The prepared listing skeleton.
+     * @param string $instanceurl PeerTube base URL without trailing slash.
+     * @param int $page Requested page number, starting at one.
+     * @param array $channelfilters Lower case channel handles to keep.
+     * @return array The completed listing structure.
+     */
+    private function get_filtered_listing(
+        array $list,
+        string $instanceurl,
+        int $page,
+        array $channelfilters
+    ): array {
+        $matches = $this->collect_matching_videos($instanceurl, $channelfilters);
+        if (!$matches) {
+            return $list;
+        }
+
+        $offset = ($page - 1) * self::PAGE_SIZE;
+        foreach (array_slice($matches, $offset, self::PAGE_SIZE) as $video) {
+            $list['list'][] = $this->video_to_listitem($video, $instanceurl);
+        }
+
+        $list['pages'] = max(1, (int)ceil(count($matches) / self::PAGE_SIZE));
+
+        return $list;
+    }
+
+    /**
+     * Collect every video of the account that belongs to the channels.
+     *
+     * The account is walked page by page until PeerTube reports no more
+     * videos. Without this loop the listing would silently drop older
+     * videos as soon as the account holds more of them than a single
+     * request returns. MAX_FETCH_PAGES caps the effort on very large
+     * accounts; reaching it is reported through debugging().
+     *
+     * The number of configured channels does not influence the number
+     * of API requests, because all channels live in the same account
+     * and are therefore covered by the same walk.
+     *
+     * @param string $instanceurl PeerTube base URL without trailing slash.
+     * @param array $channelfilters Lower case channel handles to keep.
+     * @return array The matching video objects in API order.
+     */
+    private function collect_matching_videos(string $instanceurl, array $channelfilters): array {
+        $matches = [];
+        $start = 0;
+        $seen = 0;
+        $total = 0;
+
+        for ($request = 0; $request < self::MAX_FETCH_PAGES; $request++) {
+            $data = $this->fetch_videos($instanceurl, $start, self::PAGE_SIZE_FILTERED);
+            if (!$data || empty($data->data)) {
+                return $matches;
+            }
+
+            if ($request === 0) {
+                $total = (int)($data->total ?? 0);
+            }
+
+            $matches = array_merge(
+                $matches,
+                $this->filter_by_channel($data->data, $channelfilters)
+            );
+
+            $received = count($data->data);
+            $seen += $received;
+            $start += self::PAGE_SIZE_FILTERED;
+
+            if ($received < self::PAGE_SIZE_FILTERED) {
+                return $matches;
+            }
+
+            if ($total > 0 && $seen >= $total) {
+                return $matches;
+            }
+        }
+
+        debugging(
+            'PeerTube OAuth2: stopped after ' . self::MAX_FETCH_PAGES . ' requests, listing may be incomplete.',
+            DEBUG_DEVELOPER
+        );
+
+        return $matches;
     }
 
     /**
@@ -359,7 +308,7 @@ class repository_peertubeoauth extends repository {
      * @return object|null Decoded API response, or null on failure.
      */
     private function fetch_videos(string $instanceurl, int $start, int $perpage): ?object {
-        $token = $this->get_access_token();
+        $token = \repository_peertubeoauth\api::get_token();
 
         if ($token) {
             $url = $instanceurl . '/api/v1/users/me/videos?' . http_build_query([
@@ -367,7 +316,7 @@ class repository_peertubeoauth extends repository {
                 'count' => $perpage,
                 'sort' => '-publishedAt',
             ]);
-            return $this->api_call($url, 'GET', [], $token);
+            return \repository_peertubeoauth\api::call($url, 'GET', [], $token);
         }
 
         $url = $instanceurl . '/api/v1/search/videos?' . http_build_query([
@@ -376,48 +325,31 @@ class repository_peertubeoauth extends repository {
             'sort' => '-publishedAt',
             'privacyOneOf' => self::PRIVACY_PUBLIC,
         ]);
-        return $this->api_call($url, 'GET');
+        return \repository_peertubeoauth\api::call($url, 'GET');
     }
 
     /**
-     * Reduce a list of videos to those belonging to one channel.
+     * Reduce a list of videos to those belonging to the given channels.
+     *
+     * The stored handles are already lower case, so the comparison is
+     * done on a lower case copy of the channel name rather than through
+     * a case insensitive string comparison per entry.
      *
      * @param array $videos Videos as returned by the PeerTube API.
-     * @param string|null $channelfilter Channel name, or null for no filter.
+     * @param array $channelfilters Lower case channel handles to keep.
      * @return array The filtered list of videos.
      */
-    private function filter_by_channel(array $videos, ?string $channelfilter): array {
-        if (!$channelfilter) {
+    private function filter_by_channel(array $videos, array $channelfilters): array {
+        if (!$channelfilters) {
             return $videos;
         }
 
-        $matching = array_filter($videos, function ($video) use ($channelfilter) {
-            $channelname = $video->channel->name ?? '';
-            return strcasecmp($channelname, $channelfilter) === 0;
+        $matching = array_filter($videos, function ($video) use ($channelfilters) {
+            $channelname = \core_text::strtolower($video->channel->name ?? '');
+            return in_array($channelname, $channelfilters, true);
         });
 
         return array_values($matching);
-    }
-
-    /**
-     * Determine the number of pages reported to the file picker.
-     *
-     * @param object $data Decoded API response.
-     * @param int $perpage Number of videos per page.
-     * @param string|null $channelfilter Channel name, or null for no filter.
-     * @return int The page count.
-     */
-    private function count_pages(object $data, int $perpage, ?string $channelfilter): int {
-        if ($channelfilter) {
-            // The filtered result already fits on a single page.
-            return 1;
-        }
-
-        if (empty($data->total)) {
-            return 1;
-        }
-
-        return (int)ceil($data->total / $perpage);
     }
 
     /**
@@ -612,6 +544,21 @@ class repository_peertubeoauth extends repository {
         $mform->setType('embedparams', PARAM_RAW_TRIMMED);
         $mform->addHelpButton('embedparams', 'embedparams', 'repository_peertubeoauth');
         $mform->setDefault('embedparams', \repository_peertubeoauth\hook_callbacks::DEFAULT_EMBED_PARAMS);
+
+        // The group channel administration lives on its own page.
+        // It manages database rows rather than plugin settings.
+        // The link is placed here on purpose.
+        // This form is where an administrator already looks.
+        $manageurl = new \moodle_url('/repository/peertubeoauth/managecohortchannels.php');
+        $mform->addElement(
+            'static',
+            'managecohortchannels',
+            get_string('groupchannels', 'repository_peertubeoauth'),
+            \html_writer::link(
+                $manageurl,
+                get_string('managecohortchannels', 'repository_peertubeoauth')
+            )
+        );
 
         // The instance checkboxes are not added here on purpose.
         // Moodle renders them automatically from get_type_option_names().

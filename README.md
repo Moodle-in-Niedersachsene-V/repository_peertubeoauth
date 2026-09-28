@@ -50,6 +50,20 @@ To let teachers create personal repository instances in their own
 profile, the capability `repository/peertubeoauth:view` has to be granted
 to the authenticated user role. See `docs/` for details.
 
+## Group channels
+
+Besides the personal channel of a teacher, an instance also shows the
+channels of every cohort that teacher belongs to. An administrator
+maintains the assignment under *Manage group channels*, reachable from
+the repository settings page.
+
+All channels live inside the same shared moderator account, so the
+assignment decides who **finds** a video in the file picker, not who may
+play it. See the privacy note below.
+
+An instance without a personal channel stays unfiltered and keeps
+showing every video of the account, as before.
+
 ## Privacy note
 
 Videos embedded through this plugin are marked *unlisted* on PeerTube.

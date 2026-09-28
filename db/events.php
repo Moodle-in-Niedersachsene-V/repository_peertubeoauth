@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version information for repository_peertubeoauth.
+ * Event observer registrations for repository_peertubeoauth.
  *
  * @package    repository_peertubeoauth
  * @author     Moodle in Niedersachsen e. V.
@@ -25,9 +25,9 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version    = 2026092702;
-$plugin->requires   = 2025100600;
-$plugin->component  = 'repository_peertubeoauth';
-$plugin->maturity   = MATURITY_STABLE;
-$plugin->release    = '1.5.0';
-$plugin->maintainer = 'Moodle in Niedersachsen e. V.';
+$observers = [
+    [
+        'eventname' => '\core\event\cohort_deleted',
+        'callback' => '\repository_peertubeoauth\observer::cohort_deleted',
+    ],
+];

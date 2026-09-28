@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version information for repository_peertubeoauth.
+ * Event observers for repository_peertubeoauth.
  *
  * @package    repository_peertubeoauth
  * @author     Moodle in Niedersachsen e. V.
@@ -23,11 +23,23 @@
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
+namespace repository_peertubeoauth;
 
-$plugin->version    = 2026092702;
-$plugin->requires   = 2025100600;
-$plugin->component  = 'repository_peertubeoauth';
-$plugin->maturity   = MATURITY_STABLE;
-$plugin->release    = '1.5.0';
-$plugin->maintainer = 'Moodle in Niedersachsen e. V.';
+/**
+ * Observers keeping the cohort channel mapping consistent.
+ */
+class observer {
+    /**
+     * Remove the mapping of a cohort that has just been deleted.
+     *
+     * Only the Moodle side mapping is removed. The channel itself stays
+     * on PeerTube together with its videos, because deleting it would
+     * break every link that has already been embedded in a course.
+     *
+     * @param \core\event\cohort_deleted $event The event carrying the cohort id.
+     * @return void
+     */
+    public static function cohort_deleted(\core\event\cohort_deleted $event): void {
+        cohort_channel::delete_by_cohort((int)$event->objectid);
+    }
+}

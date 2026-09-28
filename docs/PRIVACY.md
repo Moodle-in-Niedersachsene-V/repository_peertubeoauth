@@ -12,6 +12,17 @@ random password for the moderator account, restrict database access to
 localhost, and enable two factor authentication for PeerTube
 administrator accounts.
 
+## The group channel table
+
+The table `peertubeoauth_cohortchannel` stores a cohort id together with
+a PeerTube channel handle and a display name. It holds no data about
+individual users; cohort membership itself is core Moodle data. The
+plugin therefore still declares `null_provider`.
+
+When a cohort is deleted, an event observer removes the matching rows.
+The channel and its videos stay on PeerTube, because removing them would
+break links that are already embedded in courses.
+
 ## Embed parameters
 
 The default embed parameters are `peertubeLink=0&p2p=0&warningTitle=0`.
