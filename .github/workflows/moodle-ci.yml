@@ -1,14 +1,36 @@
+##############################################################################
+# GitHub Actions Workflow fuer Moodle-Plugin-Pruefung
+# Moodle in Niedersachsen e. V.
+#
+# Plugin: repository_peertubeoauth
+# Ablage: .github/workflows/moodle-ci.yml
+#
+# Angepasst an die Referenz des Vereins (moodle-ci.yml im Projekt):
+#   - postgres:16, weil Moodle 5.2 mindestens PostgreSQL 16 verlangt
+#   - ubuntu-22.04 und !cancelled() statt always()
+#   - MariaDB-Healthcheck ueber healthcheck.sh
+#   - amd/build/ wird als Artefakt hochgeladen, damit die von Moodles
+#     Rollup erzeugten Dateien ohne eigene Workbench abholbar sind
+# Dieses Plugin hat tests/ und keine templates/, daher bleiben die
+# Schritte phpunit und behat drin; mustache laeuft als Freilos durch.
+##############################################################################
+
 name: Moodle Plugin CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     services:
       postgres:
-        image: postgres:14
+        image: postgres:16
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -30,7 +52,7 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 3
@@ -47,71 +69,78 @@ jobs:
             database: 'pgsql'
 
     steps:
-      - name: Check out repository code
+      - name: Plugin-Quellcode auschecken
         uses: actions/checkout@v4
         with:
           path: plugin
 
-      - name: Setup PHP ${{ matrix.php }}
+      - name: PHP ${{ matrix.php }} einrichten
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: ${{ matrix.extensions }}
           ini-values: max_input_vars=5000
           coverage: none
 
-      - name: Initialise moodle-plugin-ci
+      - name: moodle-plugin-ci installieren
         run: |
-          composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4
+          composer create-project -n --no-dev --prefer-dist \
+            moodlehq/moodle-plugin-ci ci ^4
           echo $(cd ci/bin; pwd) >> $GITHUB_PATH
           echo $(cd ci/vendor/bin; pwd) >> $GITHUB_PATH
           sudo locale-gen en_AU.UTF-8
           echo "NVM_DIR=$HOME/.nvm" >> $GITHUB_ENV
 
-      - name: Install moodle-plugin-ci
+      - name: Moodle und Plugin installieren
         run: moodle-plugin-ci install --plugin ./plugin --db-host=127.0.0.1
         env:
           DB: ${{ matrix.database }}
           MOODLE_BRANCH: ${{ matrix.moodle-branch }}
 
-      - name: PHP Lint
-        if: ${{ always() }}
+      - name: PHP Lint (Syntaxpruefung)
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci phplint
 
       - name: PHP Mess Detector
         continue-on-error: true
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci phpmd
 
-      - name: Moodle Code Checker
-        if: ${{ always() }}
+      - name: Moodle Code Checker (Coding Style)
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci phpcs --max-warnings 0
 
       - name: Moodle PHPDoc Checker
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci phpdoc --max-warnings 0
 
-      - name: Validating
-        if: ${{ always() }}
+      - name: Plugin-Struktur validieren
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci validate
 
-      - name: Check upgrade savepoints
-        if: ${{ always() }}
+      - name: Upgrade-Savepoints pruefen
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci savepoints
 
       - name: Mustache Lint
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci mustache
 
-      - name: Grunt
-        if: ${{ always() }}
+      - name: Grunt (JS/CSS-Lint, AMD-Build-Abgleich)
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci grunt --max-lint-warnings 0
 
-      - name: PHPUnit tests
-        if: ${{ always() }}
+      - name: PHPUnit-Tests
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci phpunit --fail-on-warning
 
-      - name: Behat features
-        id: behat
-        if: ${{ always() }}
+      - name: Behat-Tests
+        if: ${{ !cancelled() }}
         run: moodle-plugin-ci behat --profile chrome
+
+      - name: Erzeugte AMD-Build-Dateien bereitstellen
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd-build-${{ matrix.php }}
+          path: moodle/public/repository/peertubeoauth/amd/build/
+          if-no-files-found: warn
