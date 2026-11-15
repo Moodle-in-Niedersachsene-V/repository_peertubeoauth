@@ -19,6 +19,7 @@ only public ones.
   file picker
 - Configurable embed parameters, disabling P2P by default so that viewer
   IP addresses are not shared with other peers
+- Pseudonymous channel names, so that no teacher name reaches PeerTube
 - German and English interface
 
 ## Requirements
@@ -44,6 +45,7 @@ repositories*, enable *PeerTube (OAuth2)* and open its settings.
 | Moderator account username | Username of the shared moderator account |
 | Moderator account password | Password of the shared moderator account |
 | School code | Prefix for generated channel names, letters, digits and underscores only |
+| Pseudonymous channel names | Off, LTI accounts only (default), or all accounts |
 | Embed URL parameters | Privacy and player parameters, default `peertubeLink=0&p2p=0&warningTitle=0` |
 
 To let teachers create personal repository instances in their own
@@ -64,6 +66,26 @@ play it. See the privacy note below.
 An instance without a personal channel stays unfiltered and keeps
 showing every video of the account, as before.
 
+## Pseudonymous channel names
+
+A channel is normally named after the teacher, following the pattern
+`schoolcode_lastname_firstname`. With pseudonymous names switched on it
+follows `schoolcode_u<userid>` instead, for example `hub_u4711`, and its
+display name on PeerTube becomes *Teacher 4711*. No name is passed to
+PeerTube in that case.
+
+The setting defaults to LTI accounts only. Such an account carries no
+usable name unless the host transfers one: its first name holds the user
+id of the home school and its last name the address of that school. A
+named handle built from those is unreadable, reveals the school, and can
+exceed the PeerTube limit of 50 characters. With name transfer, on the
+other hand, teachers of the same name at different schools would end up
+sharing a single channel.
+
+Existing channels are left alone. The name stored for a teacher is never
+recalculated, so only channels created after the change follow the
+setting.
+
 ## Privacy note
 
 Videos embedded through this plugin are marked *unlisted* on PeerTube.
@@ -71,6 +93,10 @@ This hides them from search, but it is **not** an access control: the
 video address is present in the page source and works for anyone who
 receives it. Do not publish sensitive or personal videos this way. Use
 the access controlled file area of Moodle for such content instead.
+
+Teacher names are a separate question. Where pseudonymous channel names
+are switched on, the plugin passes no name to PeerTube at all; the
+channel and its display name carry the Moodle user id instead.
 
 ## Documentation
 

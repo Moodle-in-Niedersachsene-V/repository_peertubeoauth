@@ -72,6 +72,18 @@ class repository_peertubeoauth extends repository {
     /** @var int Safety limit on API requests made for one filtered listing. */
     const MAX_FETCH_PAGES = 20;
 
+    /** @var int Pseudonym channels are disabled for every account. */
+    const PSEUDONYM_OFF = 0;
+
+    /** @var int Pseudonym channels are used for LTI accounts only. */
+    const PSEUDONYM_LTI = 1;
+
+    /** @var int Pseudonym channels are used for every account. */
+    const PSEUDONYM_ALL = 2;
+
+    /** @var int Maximum length of a channel handle accepted by PeerTube. */
+    const MAX_HANDLE_LENGTH = 50;
+
     /** @var string Session key under which the access token is cached. */
     const TOKEN_CACHE_KEY = \repository_peertubeoauth\api::TOKEN_CACHE_KEY;
 
@@ -463,6 +475,7 @@ class repository_peertubeoauth extends repository {
             'fallbackusername',
             'fallbackpassword',
             'schoolcode',
+            'pseudonymchannels',
             'embedparams',
             'pluginname',
             'enablecourseinstances',
@@ -532,6 +545,23 @@ class repository_peertubeoauth extends repository {
         $mform->setType('schoolcode', PARAM_ALPHANUMEXT);
         $mform->addHelpButton('schoolcode', 'schoolcode', 'repository_peertubeoauth');
 
+        // A pseudonym handle is built from the user id instead of the name.
+        // LTI accounts carry no usable name, so they are the default case.
+        // Their first name holds a foreign user id and their last name a URL.
+        $mform->addElement(
+            'select',
+            'pseudonymchannels',
+            get_string('pseudonymchannels', 'repository_peertubeoauth'),
+            [
+                self::PSEUDONYM_OFF => get_string('pseudonymchannels_off', 'repository_peertubeoauth'),
+                self::PSEUDONYM_LTI => get_string('pseudonymchannels_lti', 'repository_peertubeoauth'),
+                self::PSEUDONYM_ALL => get_string('pseudonymchannels_all', 'repository_peertubeoauth'),
+            ]
+        );
+        $mform->setType('pseudonymchannels', PARAM_INT);
+        $mform->addHelpButton('pseudonymchannels', 'pseudonymchannels', 'repository_peertubeoauth');
+        $mform->setDefault('pseudonymchannels', self::PSEUDONYM_LTI);
+
         // These parameters are appended to every embedded video.
         // They are applied by the renderer in amd/src/embed_links.js.
         // The default disables P2P and hides the player chrome.
@@ -598,8 +628,10 @@ class repository_peertubeoauth extends repository {
 
         // The field is prefilled with the generated channel handle.
         // Teachers then see the correct value without typing it.
+        // A pseudonym handle needs no name, so the name check is skipped.
         $schoolcode = get_config('peertubeoauth', 'schoolcode');
-        if ($schoolcode && !empty($USER->lastname)) {
+        $cansuggest = !empty($USER->lastname) || self::use_pseudonym($USER);
+        if ($schoolcode && $cansuggest) {
             $suggested = self::build_channel_handle_for_user($USER, $schoolcode);
             if ($suggested) {
                 // The setDefault call only fills in empty values.
@@ -624,21 +656,125 @@ class repository_peertubeoauth extends repository {
      * @return string|null The channel handle, or null when it is empty.
      */
     public static function build_channel_handle_for_user(\stdClass $user, string $schoolcode): ?string {
-        $handle = $schoolcode . '_' . $user->lastname . '_' . $user->firstname;
-        $handle = mb_strtolower($handle, 'UTF-8');
+        if (self::use_pseudonym($user)) {
+            return self::build_pseudonym_handle($user, $schoolcode);
+        }
+
+        $handle = self::sanitise_handle($schoolcode . '_' . $user->lastname . '_' . $user->firstname);
+
+        // The handle is plain ASCII after sanitising, so substr is byte safe.
+        $handle = trim(substr($handle, 0, self::MAX_HANDLE_LENGTH), '_');
+
+        return $handle ?: null;
+    }
+
+    /**
+     * Build the channel display name shown on PeerTube for a user.
+     *
+     * The upload plugin uses this helper as well, so that a handle and
+     * the display name beside it always follow the same rule.
+     *
+     * @param stdClass $user The Moodle user record.
+     * @param string $schoolcode Short identifier of the school.
+     * @return string The display name, empty only without any input.
+     */
+    public static function build_channel_displayname_for_user(\stdClass $user, string $schoolcode): string {
+        if (self::use_pseudonym($user)) {
+            $name = get_string(
+                'pseudonymdisplayname',
+                'repository_peertubeoauth',
+                (int)($user->id ?? 0)
+            );
+        } else {
+            $name = trim(($user->firstname ?? '') . ' ' . ($user->lastname ?? ''));
+        }
+
+        $schoolcode = trim($schoolcode);
+        if ($schoolcode === '') {
+            return $name;
+        }
+
+        return $name . ' (' . \core_text::strtoupper($schoolcode) . ')';
+    }
+
+    /**
+     * Build a handle that identifies a user without naming them.
+     *
+     * Only the school code is shortened when the result would exceed
+     * the PeerTube limit. The user id carries the identity, and cutting
+     * it would give two teachers of one school the same channel.
+     *
+     * @param stdClass $user The Moodle user record.
+     * @param string $schoolcode Short identifier of the school.
+     * @return string|null The channel handle, or null without a user id.
+     */
+    private static function build_pseudonym_handle(\stdClass $user, string $schoolcode): ?string {
+        $userid = (int)($user->id ?? 0);
+        if ($userid <= 0) {
+            return null;
+        }
+
+        $suffix = 'u' . $userid;
+        $room = self::MAX_HANDLE_LENGTH - strlen($suffix) - 1;
+        if ($room < 1) {
+            return $suffix;
+        }
+
+        $prefix = trim(substr(self::sanitise_handle($schoolcode), 0, $room), '_');
+
+        return $prefix !== '' ? $prefix . '_' . $suffix : $suffix;
+    }
+
+    /**
+     * Decide whether a user gets a pseudonym channel instead of a named one.
+     *
+     * An unsaved setting counts as LTI only. A site that upgrades to
+     * this version therefore keeps names for local accounts and drops
+     * them for LTI accounts without the administrator acting first.
+     *
+     * @param stdClass $user The Moodle user record.
+     * @return bool True when the handle must carry no name.
+     */
+    private static function use_pseudonym(\stdClass $user): bool {
+        $mode = get_config('peertubeoauth', 'pseudonymchannels');
+        if ($mode === false || $mode === null || $mode === '') {
+            $mode = self::PSEUDONYM_LTI;
+        }
+
+        if ((int)$mode === self::PSEUDONYM_ALL) {
+            return true;
+        }
+
+        if ((int)$mode === self::PSEUDONYM_LTI) {
+            return ($user->auth ?? '') === 'lti';
+        }
+
+        return false;
+    }
+
+    /**
+     * Reduce arbitrary text to the character set PeerTube accepts.
+     *
+     * PeerTube channel names allow lower case letters, digits,
+     * underscores and dots. Hyphens are rejected even though they look
+     * URL safe, so they are mapped to underscores like spaces are.
+     *
+     * @param string $text The text to reduce.
+     * @return string The reduced text, which may be empty.
+     */
+    private static function sanitise_handle(string $text): string {
+        $handle = mb_strtolower($text, 'UTF-8');
         $handle = str_replace(
             ['ä', 'ö', 'ü', 'ß', 'Ä', 'Ö', 'Ü', ' ', '-'],
             ['ae', 'oe', 'ue', 'ss', 'ae', 'oe', 'ue', '_', '_'],
             $handle
         );
 
-        // PeerTube channel names allow letters, digits, underscores and dots.
-        // Hyphens are not allowed even though they look URL safe.
         $handle = preg_replace('/[^a-z0-9_\.]/', '', $handle);
 
         // Collapse repeated underscores into a single one.
         $handle = preg_replace('/_+/', '_', $handle);
-        $handle = trim($handle, '_');
-        return $handle ?: null;
+
+        return trim($handle, '_');
     }
 }

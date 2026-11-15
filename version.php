@@ -25,9 +25,9 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version    = 2026092703;
+$plugin->version    = 2026111401;
 $plugin->requires   = 2025100600;
 $plugin->component  = 'repository_peertubeoauth';
 $plugin->maturity   = MATURITY_STABLE;
-$plugin->release    = '1.5.0';
+$plugin->release    = '1.6.0';
 $plugin->maintainer = 'Moodle in Niedersachsen e. V.';
